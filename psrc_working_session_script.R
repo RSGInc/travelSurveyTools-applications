@@ -2,10 +2,12 @@ library(data.table)
 library(stringr)
 library(travelSurveyTools)
 
+--------------------------------------------------------------------------------
 ### Load in Data --------
+--------------------------------------------------------------------------------
 user = Sys.info()[['user']]
 
-# load in data received from PSRC on 1/24
+# load in data received from PSRC on 2/1
 trip = fread(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
                       "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
                       "5.Deliverables/7_Data&Documentation/0_Data_Inputs_From_PSRC/from_psrc_20240201/Trip.csv"))
@@ -110,15 +112,17 @@ stopifnot(sum(person$person_weight, na.rm = T) == sum(person_weights$person_weig
 stopifnot(sum(day$day_weight, na.rm = T) == sum(day_weights$day_weight))
 stopifnot(sum(trip$trip_weight, na.rm = T) == sum(trip_weights$trip_weight))
 
-
+# only keep weighted households
 hh = hh[!is.na(hh_weight)]
 person = person[hhid %in% hh$hhid]
 day = day[hhid %in% hh$hhid]
 trip = trip[hhid %in% hh$hhid]
 vehicle = vehicle[hhid %in% hh$hhid]
 
-### Data Updates -------
-
+--------------------------------------------------------------------------------
+### Data Updates-------
+--------------------------------------------------------------------------------
+  
 # make hts_data a list
 hts_data = list(hh = hh,
                 person = person,
@@ -144,6 +148,9 @@ variable_list[, is_checkbox := ifelse(grepl('--', description), 1, 0)]
 
 variable_list = variable_list[!is.na(hh) | !is.na(person) | !is.na(day) | !is.na(trip) | !is.na(vehicle) | location != 0]
 
+--------------------------------------------------------------------------------
+### Example data summaries-----
+--------------------------------------------------------------------------------
 
 ### Summarize age by gender-----
 prepped_dt = hts_prep_variable(summarize_var = 'age',
