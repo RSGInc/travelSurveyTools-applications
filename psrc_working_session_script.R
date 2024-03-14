@@ -5,54 +5,52 @@ library(travelSurveyTools)
 ### Load in Data --------
 user = Sys.info()[['user']]
 
+data_dir_2023 = str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
+                      "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
+                      "5.Deliverables/7_Data&Documentation/0_Data_Inputs_From_PSRC/from_psrc_20240201")
+
+files_2023 = Sys.glob(file.path(data_dir_2023, "*.csv"))
+
 # load in data received from PSRC on 1/24
-trip = fread(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                      "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
-                      "5.Deliverables/7_Data&Documentation/0_Data_Inputs_From_PSRC/from_psrc_20240201/Trip.csv"))
 
-hh = fread(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                      "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
-                      "5.Deliverables/7_Data&Documentation/0_Data_Inputs_From_PSRC/from_psrc_20240201/Household.csv"))
+for (fl in files_2023) {
+  tbl_name_2023 = stringr::str_match(
+    basename(fl), 
+    "(.*?).csv"
+  )[, 2]
+  message("Reading ", basename(fl))
+  assign(tolower(paste0(tbl_name_2023)), fread(fl))
+}
 
-person = fread(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                      "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
-                      "5.Deliverables/7_Data&Documentation/0_Data_Inputs_From_PSRC/from_psrc_20240201/Person.csv"))
-
-day = fread(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                      "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
-                      "5.Deliverables/7_Data&Documentation/0_Data_Inputs_From_PSRC/from_psrc_20240201/Day.csv"))
-
-vehicle = fread(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                      "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
-                      "5.Deliverables/7_Data&Documentation/0_Data_Inputs_From_PSRC/from_psrc_20240201/Vehicle.csv"))
+# rename hh table
+hh = household
 
 # load in new codebook from PSRC (PSRC change to their path)
-variable_list = readxl::read_xlsx(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                                           "PSRC Survey Program/210252_PSRC_HTS/Internal/3.DataAnalysis/1.Data/Codebook/PSRC_Combined_Codebook_2023_02132024_RSG.xlsx",),
-                                  sheet = 'variable_list_2023')
+cb_path = str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
+                   "PSRC Survey Program/210252_PSRC_HTS/Internal/3.DataAnalysis/",
+                   "1.Data/Codebook/PSRC_Combined_Codebook_2023_02132024_RSG.xlsx")
 
-value_labels = readxl::read_xlsx(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                                           "PSRC Survey Program/210252_PSRC_HTS/Internal/3.DataAnalysis/1.Data/Codebook/PSRC_Combined_Codebook_2023_02132024_RSG.xlsx",),
-                                  sheet = 'value_labels_2023')
+variable_list = readxl::read_xlsx(cb_path, sheet = 'variable_list_2023')
+value_labels = readxl::read_xlsx(cb_path, sheet = 'value_labels_2023')
+
 setDT(variable_list)
 setDT(value_labels)
 
 # load in weights
-hh_weights = fread(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                            "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
-                            "5.Deliverables/9_Weighting1/2_RSG_Outputs/hh_weights.csv"))
+weights_path_2023 = str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
+                        "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
+                        "5.Deliverables/9_Weighting1/2_RSG_Outputs")
 
-person_weights = fread(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                            "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
-                            "5.Deliverables/9_Weighting1/2_RSG_Outputs/person_weights.csv"))
+weight_files_2023 = Sys.glob(file.path(weights_path_2023, "*.csv"))
 
-day_weights = fread(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                            "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
-                            "5.Deliverables/9_Weighting1/2_RSG_Outputs/day_weights.csv"))
-
-trip_weights = fread(str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                            "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
-                            "5.Deliverables/9_Weighting1/2_RSG_Outputs/trip_weights.csv"))
+for (w in weight_files_2023) {
+  weight_files_2023 = stringr::str_match(
+    basename(w), 
+    "(.*?).csv"
+  )[, 2]
+  message("Reading ", basename(w))
+  assign(paste0(weight_files_2023), fread(w))
+}
 
 # drop old weights
 hh[, hh_weight_2023 := NULL]
