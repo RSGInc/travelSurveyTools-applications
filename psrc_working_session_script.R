@@ -5,7 +5,9 @@ library(travelSurveyTools)
 ### Load in Data --------
 user = Sys.info()[['user']]
 
+
 data_dir_2023 = str_glue("J:/Projects/Surveys/HHTravel/Survey2023/Data/data_unweighted_cleaned_to_rsg_020124")
+
 
 files_2023 = Sys.glob(file.path(data_dir_2023, "*.csv"))
 
@@ -33,7 +35,10 @@ setDT(variable_list)
 setDT(value_labels)
 
 # load in weights
+
 weights_path_2023 = str_glue("J:/Projects/Surveys/HHTravel/Survey2023/Data/weighting/9_Weighting/9_Weighting/2_RSG_Outputs")
+
+
 
 weight_files_2023 = Sys.glob(file.path(weights_path_2023, "*.csv"))
 
@@ -138,6 +143,7 @@ variable_list[, is_checkbox := ifelse(grepl('--', description), 1, 0)]
 
 variable_list = variable_list[!is.na(hh) | !is.na(person) | !is.na(day) | !is.na(trip) | !is.na(vehicle) | location != 0]
 
+### Example data summaries-----
 
 ### Summarize age by gender-----
 prepped_dt = hts_prep_variable(summarize_var = 'age',
