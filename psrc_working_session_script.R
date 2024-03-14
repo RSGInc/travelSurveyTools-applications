@@ -5,9 +5,7 @@ library(travelSurveyTools)
 ### Load in Data --------
 user = Sys.info()[['user']]
 
-data_dir_2023 = str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                      "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
-                      "5.Deliverables/7_Data&Documentation/0_Data_Inputs_From_PSRC/from_psrc_20240201")
+data_dir_2023 = str_glue("J:/Projects/Surveys/HHTravel/Survey2023/Data/data_unweighted_cleaned_to_rsg_020124")
 
 files_2023 = Sys.glob(file.path(data_dir_2023, "*.csv"))
 
@@ -26,9 +24,7 @@ for (fl in files_2023) {
 hh = household
 
 # load in new codebook from PSRC (PSRC change to their path)
-cb_path = str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                   "PSRC Survey Program/210252_PSRC_HTS/Internal/3.DataAnalysis/",
-                   "1.Data/Codebook/PSRC_Combined_Codebook_2023_02132024_RSG.xlsx")
+cb_path = str_glue("J:/Projects/Surveys/HHTravel/Survey2023/Data/codebook/PSRC_Combined_Codebook_2023_groupings.xlsx")
 
 variable_list = readxl::read_xlsx(cb_path, sheet = 'variable_list_2023')
 value_labels = readxl::read_xlsx(cb_path, sheet = 'value_labels_2023')
@@ -37,9 +33,7 @@ setDT(variable_list)
 setDT(value_labels)
 
 # load in weights
-weights_path_2023 = str_glue("C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
-                        "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
-                        "5.Deliverables/9_Weighting1/2_RSG_Outputs")
+weights_path_2023 = str_glue("J:/Projects/Surveys/HHTravel/Survey2023/Data/weighting/9_Weighting/9_Weighting/2_RSG_Outputs")
 
 weight_files_2023 = Sys.glob(file.path(weights_path_2023, "*.csv"))
 
@@ -127,9 +121,11 @@ hts_data = list(hh = hh,
 # codebook updates
 
 setnames(variable_list, c('psrc_variable', 'hh_23', 'per_23', 'veh_23', 'day_23', 'trip_23', 'location_final', 'description_2023', 'data_type_2023'),
-         c('variable', 'hh', 'person', 'vehicle', 'day', 'trip', 'location', 'description', 'data_type'))
+         c('variable', 'hh', 'person', 'vehicle', 'day', 'trip', 'location', 'description', 'data_type'),
+         skip_absent=TRUE)
 
-setnames(value_labels, c('final_label', 'psrc_variable', 'psrc_value'), c('label', 'variable', 'value'))
+setnames(value_labels, c('final_label', 'psrc_variable', 'psrc_value'), c('label', 'variable', 'value'),
+         skip_absent=TRUE)
 
 value_labels[, val_order := seq_len(nrow(value_labels))]
 
