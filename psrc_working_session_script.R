@@ -26,10 +26,10 @@ for (fl in files_2023) {
 hh = household
 
 # load in new codebook from PSRC (PSRC change to their path)
-cb_path = str_glue("J:/Projects/Surveys/HHTravel/Survey2023/Data/codebook/PSRC_Combined_Codebook_2023_groupings.xlsx")
+cb_path = str_glue("J:/Projects/Surveys/HHTravel/Survey2023/Data/codebook/PSRC_Combined_Codebook_2023_packagable.xlsx")
 
-variable_list = readxl::read_xlsx(cb_path, sheet = 'variable_list_2023')
-value_labels = readxl::read_xlsx(cb_path, sheet = 'value_labels_2023')
+variable_list = readxl::read_xlsx(cb_path, sheet = 'variable_list')
+value_labels = readxl::read_xlsx(cb_path, sheet = 'value_labels')
 
 setDT(variable_list)
 setDT(value_labels)
