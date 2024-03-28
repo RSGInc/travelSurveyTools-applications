@@ -1,0 +1,1393 @@
+---
+title: "2023 PSRC Report Tables"
+author: "James Clark"
+date: "`r Sys.Date()`"
+output:
+  word_document
+---
+
+
+```{r, setup, echo = FALSE, warning = FALSE}
+
+# Setup=========================================================================
+
+knitr::opts_chunk$set(warning = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+
+# remotes::install_github('RSGInc/travelSurveyTools')
+library(travelSurveyTools)
+library(data.table)
+library(stringr)
+library(janitor)
+library(readxl)
+library(flextable)
+
+user = Sys.info()['user']
+
+data_dir = str_glue(
+  "C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
+  "PSRC Survey Program/210252_PSRC_HTS/",
+  "2023 Puget Sound Travel Study/5.Deliverables/7_Data&Documentation/",
+  "0_Data_Inputs_From_PSRC/from_psrc_20240201"
+)
+
+hh = fread(file.path(data_dir, 'Household.csv'))
+person = fread(file.path(data_dir, 'Person.csv'))
+day = fread(file.path(data_dir, 'Day.csv'))
+trip = fread(file.path(data_dir, 'Trip.csv'))
+
+# load codebook
+codebook_path = str_glue(
+  "C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
+  "PSRC Survey Program/210252_PSRC_HTS/Internal/3.DataAnalysis/1.Data/Codebook/",
+  "PSRC_Combined_Codebook_2023_08162023_RSG.xlsx"
+)
+
+variable_list = read_excel(codebook_path, sheet = 'variable_list_2023')
+value_labels = read_excel(codebook_path, sheet = 'value_labels_2023')
+value_crosswalk = read_excel(codebook_path, sheet = 'value_crosswalk_2023')
+
+setDT(variable_list)
+setDT(value_labels)
+setDT(value_crosswalk)
+
+wt_dir = str_glue(
+  "C:/Users/{user}/Resource Systems Group, Inc/Transportation MR - Documents/",
+  "PSRC Survey Program/210252_PSRC_HTS/2023 Puget Sound Travel Study/",
+  "5.Deliverables/9_Weighting/2_RSG_Outputs"
+)
+
+# Read in weights
+hh_weights = fread(file.path(wt_dir, 'hh_weights.csv'))
+person_weights = fread(file.path(wt_dir, 'person_weights.csv'))
+day_weights = fread(file.path(wt_dir, 'day_weights.csv'))
+trip_weights = fread(file.path(wt_dir, 'trip_weights.csv'))
+
+
+```
+
+
+```{r data_prep, echo = FALSE, warning = FALSE}
+
+# Prepare Data for tables=======================================================
+
+# Prepare codebook--------------------------------------------------------------
+
+# rename columns to match table names
+
+old_table_names = names(variable_list)[str_detect(names(variable_list), '_final')]
+new_table_names = str_remove(old_table_names, '_final')
+
+setnames(variable_list, old_table_names, new_table_names)
+
+# Rename other columns to match expected input for travelSurveyTools
+
+old_names = c('psrc_variable', 'description_2023', 'data_type_2023', 'var_logic')
+new_names = c('variable', 'description', 'data_type', 'logic')
+
+setnames(variable_list, old_names, new_names)
+
+# Only keep the important variables
+keep_vars = c(new_table_names, new_names)
+
+variable_list = variable_list[, ..keep_vars]
+
+# Find checkbox variables i.e. have "-- " in the description
+
+variable_list[, is_checkbox := 1 * str_detect(description, "--")]
+
+# Create shared_name variable
+variable_list[, shared_name :=
+                ifelse(is_checkbox == 1,
+                       sub("_[^_]*$", "", variable),
+                       variable
+                )]
+
+# assigned tables, weights, and ids to lists to feed into functions
+
+# Append the weights------------------------------------------------------------
+
+# drop old weights (all placeholder 1s)
+hh[, hh_weight_2023 := NULL]
+person[, person_weight := NULL]
+day[, day_weight_2023 := NULL]
+trip[, trip_weight := NULL]
+
+# make all ids characters
+hh[, hhid := as.character(hhid)]
+hh_weights[, hh_id := as.character(hh_id)]
+
+person[, person_id := as.character(person_id)]
+person[, hhid := as.character(hhid)]
+person_weights[, person_id := as.character(person_id)]
+
+day[, day_id := as.character(day_id)]
+day[, hhid := as.character(hhid)]
+day[, person_id := as.character(person_id)]
+day_weights[, day_id := as.character(day_id)]
+
+trip[, tripid := as.character(tripid)]
+trip[, hhid := as.character(hhid)]
+trip[, person_id := as.character(person_id)]
+trip[, day_id := as.character(day_id)]
+trip_weights[, trip_id := as.character(trip_id)]
+
+# attach new weights
+hh[
+  hh_weights,
+  hh_weight_2023 := i.hh_weight,
+  on = c('hhid' = 'hh_id')
+]
+
+person[
+  person_weights,
+  person_weight := i.person_weight,
+  on = 'person_id'
+]
+
+day[
+  day_weights,
+  day_weight_2023 := i.day_weight,
+  on = 'day_id'
+]
+
+trip[
+  trip_weights,
+  trip_weight := i.trip_weight,
+  on = c('tripid' = 'trip_id')
+]
+
+#check the weights
+stopifnot(sum(hh$hh_weight_2023, na.rm = T) == sum(hh_weights$hh_weight))
+stopifnot(sum(person$person_weight, na.rm = T) == sum(person_weights$person_weight))
+stopifnot(sum(day$day_weight_2023, na.rm = T) == sum(day_weights$day_weight))
+stopifnot(sum(trip$trip_weight, na.rm = T) == sum(trip_weights$trip_weight))
+
+tables = list('hh' = hh,
+              'person' = person,
+              'day' = day,
+              'trip' = trip)
+
+# drop households that are no longer complete after re-calculating completes
+tables = hts_filter_data(tables, 
+                         hh[!is.na(hh_weight_2023), hhid],
+                         'hhid')
+
+ids = c('hhid', 'person_id', 'day_id', 'tripid')
+wts = c('hh_weight_2023', 'person_weight', 'day_weight_2023', 'trip_weight')
+
+```
+
+```{r define functions, echo = FALSE, warning = FALSE}
+
+# Create functions to make tables using travelSurveyTools-----------------------
+
+# functions makes flextable with weighted/unweighted counts + percents
+make_reporting_table = function(summarize_var,
+                                variable_list,
+                                tables,
+                                ids,
+                                wts,
+                                wtname,
+                                label,
+                                value_labels = NULL,
+                                shared = FALSE){
+  
+  # create input for hts_summary
+  prep = hts_prep_variable(
+    summarize_var = summarize_var,
+    variables_dt = variable_list,
+    data = tables,
+    id_cols = ids,
+    wt_cols = wts
+  )
+  
+  #edit parameters for checkbox variables
+  if (shared){
+    
+    checkbox_yes = 1
+    summarize_type = 'checkbox'
+    
+  } else {
+    
+    checkbox_yes = NULL
+    summarize_type = 'categorical'
+    
+  }
+  
+  # create summary
+  output = hts_summary(prep$cat,
+                       summarize_var = summarize_var,
+                       summarize_vartype = summarize_type,
+                       id_cols = ids,
+                       wtname = wtname,
+                       checkbox_yesval = checkbox_yes)
+  
+  
+  unwtd = output$summary$unwtd
+  wtd = output$summary$wtd
+  
+  # format outputs for table
+  setnames(unwtd, 'count', 'Unweighted Count')
+  
+  unwtd[, `Unweighted %` := round(prop * 100, 2)]
+  
+  setnames(wtd, 'est', 'Weighted Count')
+  
+  wtd[, `Weighted Count` := round(`Weighted Count`)]
+  
+  wtd[, `Weighted %` := round(prop * 100, 2)]
+  
+  tab = merge(unwtd, wtd, all.x = TRUE, by = summarize_var)
+  
+  #subset variables
+  keep_vars = c(summarize_var, 'Unweighted Count', 'Weighted Count', 'Unweighted %', 'Weighted %')
+  
+  tab = tab[, ..keep_vars]
+  
+  # label data
+  if (label){
+    
+    tab = factorize_df(
+      tab,
+      value_labels,
+      variable_colname = 'psrc_variable',
+      value_colname = 'psrc_value',
+      value_order_colname = 'psrc_value',
+      value_label_colname = "final_label")
+    
+  }
+  
+  # return as a formated flextable
+  tab %>% 
+    adorn_totals(where = 'row') %>%
+    flextable() %>% 
+    colformat_double(j = 4:5, suffix = '%')
+  
+}
+
+# function to make table for trip rates-----------------------------------------
+make_triprate_table = function(summarize_by,
+                               variable_list,
+                               tables,
+                               ids,
+                               wts,
+                               label = FALSE
+){
+  
+  # Prep unweighted data
+  triprate_prep = hts_prep_triprate(summarize_by = summarize_by,
+                                    variables_dt = variable_list,
+                                    hts_data = tables,
+                                    ids = ids,
+                                    wts = wts,
+                                    remove_outliers = FALSE,
+                                    weighted = FALSE)
+  
+  # get unwtd counts
+  unwtd_counts = triprate_prep$num[, .(`Unweighted Days` =  .N,
+                                       `Unweighted Trips` = sum(num_trips_unwtd)),
+                                   summarize_by]
+  
+  
+  # get unwtd trip rates
+  output = hts_summary(triprate_prep$num,
+                       summarize_var = 'num_trips_unwtd',
+                       summarize_by = summarize_by,
+                       summarize_vartype = 'numeric',
+                       id_cols = ids,
+                       wtname = 'day_weight_2023')
+  
+  unwtd_triprate = output$summary$unwtd[, 
+                                        .(
+                                          summarize_by = get(summarize_by),
+                                          'Unweighted Trip Rate' =  round(mean, 2)
+                                        )
+  ]
+  
+  
+  unwtd_tab = merge(unwtd_counts, unwtd_triprate, by.x = summarize_by, by.y = 'summarize_by')
+  
+  # prep weighted data
+  triprate_prep = hts_prep_triprate(summarize_by = summarize_by,
+                                    variables_dt = variable_list,
+                                    hts_data = tables,
+                                    ids = ids,
+                                    wts = wts,
+                                    remove_outliers = FALSE,
+                                    weighted = TRUE)
+  
+  # get weighted counts
+  wtd_counts = triprate_prep$num[, .(`Weighted Days` = round(sum(day_weight_2023)),
+                                     `Weighted Trips` = round(sum(num_trips_wtd))),
+                                 summarize_by]
+  
+  # get weighted trip rates
+  output = hts_summary(triprate_prep$num,
+                       summarize_var = 'num_trips_wtd',
+                       summarize_by = summarize_by,
+                       summarize_vartype = 'numeric',
+                       id_cols = ids,
+                       wtname = 'day_weight_2023')
+  
+  wtd_triprate = output$summary$wtd[, 
+                                    .(
+                                      summarize_by = get(summarize_by),
+                                      'Weighted Trip Rate' = round(mean, 2)
+                                    )
+  ]
+  
+  
+  wtd_tab = merge(wtd_counts, wtd_triprate, by.x = summarize_by, by.y = 'summarize_by')
+  
+  #combined weighted and unweighted
+  tab = merge(unwtd_tab, wtd_tab, by = summarize_by)
+  
+  tab = tab[!get(summarize_by) %in%  c('NULL', 'NA')]
+  
+  # label and order
+  if (label){
+    
+    tab = factorize_df(
+      tab,
+      value_labels,
+      variable_colname = 'psrc_variable',
+      value_colname = 'psrc_value',
+      value_order_colname = 'psrc_value',
+      value_label_colname = "final_label")
+    
+  }
+  
+  # Add total row
+  total = data.table(
+    summarize_by = 'Total',
+    'Unweighted Days' = sum(tab$`Unweighted Days`),
+    'Unweighted Trips' = sum(tab$`Unweighted Trips`),
+    'Weighted Days' = sum(tab$`Weighted Days`),
+    'Weighted Trips' = sum(tab$`Weighted Trips`)
+  )
+  
+  setnames(total, 'summarize_by', summarize_by)
+  
+  total[, `Unweighted Trip Rate` := `Unweighted Trips` / `Unweighted Days`]
+  total[, `Weighted Trip Rate` := `Weighted Trips` / `Weighted Days`]
+  
+  tab = rbind(tab, total)
+  
+  # round trip rates
+  tab[, `Unweighted Trip Rate` := round(`Unweighted Trip Rate`, 2)]
+  tab[, `Weighted Trip Rate` := round(`Weighted Trip Rate`, 2)]
+  
+  setcolorder(tab, 
+              c(summarize_by,
+                'Unweighted Days',
+                'Unweighted Trips',
+                'Weighted Days',
+                'Weighted Trips',
+                'Unweighted Trip Rate',
+                'Weighted Trip Rate')
+  )
+  
+  #return as flextable
+  return(tab %>% flextable())
+  
+}
+
+
+```
+
+
+# Demographics by participation group-------------------------------------------
+
+# Demographics
+
+# TABLE 11: PARTICIPANT AGE BY PARTICIPATION MODE
+
+```{r table 11, echo=FALSE}
+
+prep = hts_prep_variable(summarize_var = 'age',
+                         summarize_by = 'diary_platform',
+                         variables_dt = variable_list,
+                         data = tables,
+                         id_cols = ids,
+                         wt_cols = wts)
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'age',
+                     summarize_by = 'diary_platform',
+                     summarize_vartype = 'categorical',
+                     id_cols = ids,
+                     wtname = 'person_weight')
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+tab = factorize_df(
+  tab,
+  value_labels,
+  variable_colname = 'psrc_variable',
+  value_colname = 'psrc_value',
+  value_order_colname = 'psrc_value',
+  value_label_colname = "final_label")
+
+dcast(tab, age ~ diary_platform, value.var = 'pct') %>% 
+  adorn_totals() %>% 
+  flextable() %>%
+  colformat_double(suffix = '%')
+
+
+```
+
+# TABLE 12: PARTICIPANT HOUSEHOLD INCOME BY PARTICIPATION MODE
+
+```{r table 12, echo=FALSE}
+prep = hts_prep_variable(summarize_var = 'hhincome_broad',
+                         summarize_by = 'diary_platform',
+                         variables_dt = variable_list,
+                         data = tables,
+                         id_cols = ids,
+                         wt_cols = wts)
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'hhincome_broad',
+                     summarize_by = 'diary_platform',
+                     summarize_vartype = 'categorical',
+                     id_cols = ids,
+                     wtname = 'hh_weight_2023')
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+tab = factorize_df(
+  tab,
+  value_labels,
+  variable_colname = 'psrc_variable',
+  value_colname = 'psrc_value',
+  value_order_colname = 'psrc_value',
+  value_label_colname = "final_label")
+
+dcast(tab, hhincome_broad ~ diary_platform, value.var = 'pct') %>% 
+  adorn_totals() %>% 
+  flextable() %>%
+  colformat_double(suffix = '%')
+
+```
+
+# TABLE 13: PARTICIPANT HOUSEHOLD SIZE BY PARTICIPATION MODE
+
+```{r table 13, echo=FALSE}
+
+# create a binned variable for household size
+tables$hh[, hhsize_binned := ifelse(hhsize > 5, 5, hhsize)]
+
+# Write new variable to variable list
+variable_list = rbind(
+  variable_list,
+  data.table(
+    variable = 'hhsize_binned',
+    hh = 1,
+    person = 0,
+    vehicle = 0,
+    day = 0,
+    trip = 0,
+    location = 0,
+    description = 'binned household size',
+    data_type = 'integer/categorical',
+    logic = NA,
+    is_checkbox = 0,
+    shared_name = 'hhsize_binned'
+  )
+)
+
+
+
+
+
+prep = hts_prep_variable(summarize_var = 'hhsize_binned',
+                         summarize_by = 'diary_platform',
+                         variables_dt = variable_list,
+                         data = tables,
+                         id_cols = ids,
+                         wt_cols = wts)
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'hhsize_binned',
+                     summarize_by = 'diary_platform',
+                     summarize_vartype = 'categorical',
+                     id_cols = ids,
+                     wtname = 'hh_weight_2023')
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+tab = factorize_df(
+  tab,
+  value_labels,
+  variable_colname = 'psrc_variable',
+  value_colname = 'psrc_value',
+  value_order_colname = 'psrc_value',
+  value_label_colname = "final_label")
+
+dcast(tab, hhsize_binned ~ diary_platform, value.var = 'pct') %>% 
+  adorn_totals() %>% 
+  flextable() %>%
+  colformat_double(suffix = '%')
+
+```
+
+# TABLE 14: PARTICIPANT RACE BY PARTICIPATION MODE
+
+```{r table 14, echo=FALSE}
+
+# Recode person table so each person is in only one race category
+
+# Exclude Hispanic because it was asked in ethnicity
+race_vars = variable_list[shared_name == 'race' & variable != 'race_hisp', variable]
+
+#count responses for race
+tables$person[, num_races := rowSums(tables$person[, ..race_vars] == 1)]
+
+ethnicity_vars = variable_list[shared_name == 'ethnicity', variable]
+
+# count responses for ethnicity
+tables$person[, num_ethnicities := rowSums(tables$person[, ..ethnicity_vars] == 1)]
+
+# code race_hisp
+tables$person[, race_hisp := as.integer(ifelse(race_white == 1 & ethnicity_1 == 0, 1, 0))]
+
+tables$person[ race_hisp == 1, race_white := 0]
+
+# Create variables for multiple races
+tables$person[, race_multiple := as.integer(ifelse(num_races > 1 | num_ethnicities > 1, 1, 0))]
+
+
+
+tables$person[race_multiple == 1, `:=` 
+              (race_afam = 0,
+                race_aiak = 0,
+                race_asian = 0,
+                race_hapi = 0,
+                race_noanswer = 0,
+                race_other = 0,
+                race_white = 0,
+                race_hisp = 0)]
+
+variable_list = rbind(
+  variable_list,
+  data.table(
+    variable = 'race_multiple',
+    hh = 1,
+    person = 0,
+    vehicle = 0,
+    day = 0,
+    trip = 0,
+    location = 0,
+    description = 'Race -- Multiple races or ethnicities',
+    data_type = 'integer/categorical',
+    logic = NA,
+    is_checkbox = 0,
+    shared_name = 'race'
+  )
+)
+
+
+prep = hts_prep_variable(summarize_var = 'race',
+                         summarize_by = 'diary_platform',
+                         variables_dt = variable_list,
+                         data = tables,
+                         id_cols = ids,
+                         wt_cols = wts)
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'race',
+                     summarize_by = 'diary_platform',
+                     summarize_vartype = 'checkbox',
+                     id_cols = ids,
+                     wtname = 'person_weight',
+                     checkbox_yesval = 1)
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+tab = factorize_df(
+  tab,
+  value_labels,
+  variable_colname = 'psrc_variable',
+  value_colname = 'psrc_value',
+  value_order_colname = 'psrc_value',
+  value_label_colname = "final_label")
+
+dcast(tab, race ~ diary_platform, value.var = 'pct') %>% 
+  adorn_totals() %>% 
+  flextable() %>%
+  colformat_double(suffix = '%')
+
+
+```
+
+
+# TABLE 15: TABLE 15: HOUSEHOLD SIZE (WEIGHTED)
+
+```{r table 15, echo = FALSE, warning = FALSE}
+
+make_reporting_table(summarize_var = 'hhsize_binned',
+                     variable_list = variable_list,
+                     tables = tables,
+                     ids = ids,
+                     wts = wts,
+                     wtname = 'hh_weight_2023',
+                     label = FALSE)
+
+
+```
+
+# TABLE 16: HOUSEHOLD INCOME (WEIGHTED)
+
+```{r table 16, echo = FALSE, warning = FALSE}
+
+make_reporting_table(summarize_var = 'hhincome_broad',
+                     variable_list = variable_list,
+                     tables = tables,
+                     ids = ids,
+                     wts = wts,
+                     wtname = 'hh_weight_2023',
+                     label = TRUE,
+                     value_labels = value_labels)
+
+```
+
+# TABLE 17: HOUSEHOLD VEHICLES (WEIGHTED)
+
+```{r table 17, echo = FALSE, warning = FALSE}
+
+# create a binned variable for num_vehicles
+tables$hh[, vehicle_count_binned := ifelse(vehicle_count > 3, 3, vehicle_count)]
+
+# Write new variable to variable list
+variable_list = rbind(
+  variable_list,
+  data.table(
+    variable = 'vehicle_count_binned',
+    hh = 1,
+    person = 0,
+    vehicle = 0,
+    day = 0,
+    trip = 0,
+    location = 0,
+    description = 'binned number of vehicles',
+    data_type = 'integer/categorical',
+    logic = NA,
+    is_checkbox = 0,
+    shared_name = 'vehicle_count_binned'
+  )
+)
+
+
+
+make_reporting_table(summarize_var = 'vehicle_count_binned',
+                     variable_list = variable_list,
+                     tables = tables,
+                     ids = ids,
+                     wts = wts,
+                     wtname = 'hh_weight_2023',
+                     label = FALSE)
+
+```
+
+# TABLE 18: PERSON AGE (WEIGHTED)
+
+```{r table 18, echo = FALSE, warning = FALSE}
+make_reporting_table(summarize_var = 'age',
+                     variable_list = variable_list,
+                     tables = tables,
+                     ids = ids,
+                     wts = wts,
+                     wtname = 'person_weight',
+                     label = TRUE,
+                     value_labels = value_labels)
+
+```
+
+# TABLE 19: PERSON GENDER (WEIGHTED)
+
+```{r table 19, echo = FALSE, warning = FALSE}
+make_reporting_table(summarize_var = 'gender',
+                     variable_list = variable_list,
+                     tables = tables,
+                     ids = ids,
+                     wts = wts,
+                     wtname = 'person_weight',
+                     label = TRUE,
+                     value_labels = value_labels)
+
+```
+
+# TABLE 20: PERSON RACE OR ETHNICITY
+
+```{r table 20, echo = FALSE, warning = FALSE}
+
+make_reporting_table(summarize_var = 'race',
+                     variable_list = variable_list,
+                     tables = tables,
+                     ids = ids,
+                     wts = wts,
+                     wtname = 'person_weight',
+                     label = TRUE,
+                     value_labels = value_labels,
+                     shared = TRUE)
+
+```
+
+# TABLE 21: PERSON STUDENT STATUS 
+
+```{r table 21, echo = FALSE, warning = FALSE}
+
+# get values from codebook to classify
+part_time = value_labels[
+  psrc_variable == 'student' &
+    str_detect(final_label, 'Part-time'),
+  psrc_value]
+
+full_time = value_labels[
+  psrc_variable == 'student' &
+    str_detect(final_label, 'Full-time'),
+  psrc_value]
+
+# make a binned student variable
+tables$person[, student_binned := fcase(
+  student %in% full_time, 'Full-time',
+  student %in% part_time, 'Part-time',
+  default = 'Not a student'
+)]
+
+# add to variable list
+variable_list = rbind(
+  variable_list,
+  data.table(
+    variable = 'student_binned',
+    hh = 0,
+    person = 1,
+    vehicle = 0,
+    day = 0,
+    trip = 0,
+    location = 0,
+    description = 'Student values binned',
+    data_type = 'categorical',
+    logic = NA,
+    is_checkbox = 0,
+    shared_name = 'student_binned'
+  )
+)
+
+
+make_reporting_table(summarize_var = 'student_binned',
+                     variable_list = variable_list,
+                     tables = tables,
+                     ids = ids,
+                     wts = wts,
+                     wtname = 'person_weight',
+                     label = TRUE,
+                     value_labels = value_labels)
+
+```
+
+# TABLE 22: PERSON EMPLOYMENT STATUS (AGE 18+)
+
+```{r table 22, echo = FALSE, warning = FALSE}
+
+make_reporting_table(summarize_var = 'employment',
+                     variable_list = variable_list,
+                     tables = tables,
+                     ids = ids,
+                     wts = wts,
+                     wtname = 'person_weight',
+                     label = TRUE,
+                     value_labels = value_labels)
+
+```
+
+# TABLE 23: PERSON SEXUALITY
+
+```{r table 23, echo = FALSE, warning = FALSE}
+
+make_reporting_table(summarize_var = 'sexuality',
+                     variable_list = variable_list,
+                     tables = tables,
+                     ids = ids,
+                     wts = wts,
+                     wtname = 'person_weight',
+                     label = TRUE,
+                     value_labels = value_labels)
+
+```
+
+# Trip Rates--------------------------------------------------------------------
+
+# TABLE 24: PERSON TRIP RATE, BY DAY OF WEEK 
+
+```{r table 24, echo = FALSE, warning = FALSE}
+
+make_triprate_table(summarize_by = 'travel_dow',
+                    variable_list = variable_list,
+                    tables = tables,
+                    ids = ids,
+                    wts = wts,
+                    label = TRUE)
+
+
+```
+
+
+# TABLE 25: PERSON TRIP RATE, BY HOUSEHOLD INCOME
+
+```{r table 25, echo = FALSE, warning = FALSE}
+
+make_triprate_table(summarize_by = 'hhincome_broad',
+                    variable_list = variable_list,
+                    tables = tables,
+                    ids = ids,
+                    wts = wts,
+                    label = TRUE)
+
+```
+
+# TABLE 26: PERSON TRIP RATE, BY AGE GROUP 
+
+```{r table 26, echo = FALSE, warning = FALSE}
+
+make_triprate_table(summarize_by = 'age',
+                    variable_list = variable_list,
+                    tables = tables,
+                    ids = ids,
+                    wts = wts,
+                    label = TRUE)
+
+```
+
+# TABLE 27: PERSON TRIP RATE, BY EMPLOYMENT STATUS (AGE 18+)
+
+```{r table 27, echo = FALSE, warning = FALSE}
+
+make_triprate_table(summarize_by = 'employment',
+                    variable_list = variable_list,
+                    tables = tables,
+                    ids = ids,
+                    wts = wts,
+                    label = TRUE)
+
+```
+
+# TABLE 28: PERSON TRIP RATE, BY TRAVEL MODE 
+
+```{r table 28, echo = FALSE, warning = FALSE}
+
+make_triprate_table(summarize_by = 'mode_type',
+                    variable_list = variable_list,
+                    tables = tables,
+                    ids = ids,
+                    wts = wts,
+                    label = TRUE)
+
+
+```
+
+# TABLE 29: PERSON TRIP RATE, BY TRIP PURPOSE 
+
+```{r table 29, echo = FALSE, warning = FALSE}
+
+make_triprate_table(summarize_by = 'dest_purpose_cat',
+                    variable_list = variable_list,
+                    tables = tables,
+                    ids = ids,
+                    wts = wts,
+                    label = TRUE)
+
+
+```
+
+# Percent of trips by travel mode-----------------------------------------------
+
+# TABLE 30: TRAVEL MODE, BY HOUSEHOLD INCOME (WEIGHTED)
+
+```{r table 30, echo = FALSE, warning = FALSE}
+
+prep = hts_prep_variable(summarize_var = 'mode_type',
+                         summarize_by = 'hhincome_broad',
+                         variables_dt = variable_list,
+                         data = tables,
+                         id_cols = ids,
+                         wt_cols = wts,
+                         missing_values = c("995", "NULL"))
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'mode_type',
+                     summarize_by = 'hhincome_broad',
+                     summarize_vartype = 'categorical',
+                     id_cols = ids,
+                     wtname = 'trip_weight')
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+# tab = tab[mode_type != 'NULL']
+
+tab = factorize_df(
+  tab,
+  value_labels,
+  variable_colname = 'psrc_variable',
+  value_colname = 'psrc_value',
+  value_order_colname = 'psrc_value',
+  value_label_colname = "final_label")
+
+dcast(tab, mode_type ~ hhincome_broad, value.var = 'pct') %>% 
+  adorn_totals() %>% 
+  flextable() %>%
+  colformat_double(suffix = '%')
+
+```
+
+# TABLE 31: TRAVEL MODE, BY AGE GROUP (WEIGHTED)
+
+```{r table 31, echo = FALSE, warning = FALSE}
+
+prep = hts_prep_variable(summarize_var = 'mode_type',
+                         summarize_by = 'age',
+                         variables_dt = variable_list,
+                         data = tables,
+                         id_cols = ids,
+                         wt_cols = wts,
+                         missing_values = c("995", "NULL"))
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'mode_type',
+                     summarize_by = 'age',
+                     summarize_vartype = 'categorical',
+                     id_cols = ids,
+                     wtname = 'trip_weight')
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+# tab = tab[mode_type != 'NULL']
+
+tab = factorize_df(
+  tab,
+  value_labels,
+  variable_colname = 'psrc_variable',
+  value_colname = 'psrc_value',
+  value_order_colname = 'psrc_value',
+  value_label_colname = "final_label")
+
+dcast(tab, mode_type ~ age, value.var = 'pct') %>% 
+  adorn_totals() %>% 
+  flextable() %>%
+  colformat_double(suffix = '%')
+
+```
+
+# Percentage of trips by trip purpose-------------------------------------------
+
+# TABLE 32: TRAVEL MODE, BY TIME OF DAY (WEIGHTED)
+
+```{r table 32, echo = FALSE, warning = FALSE}
+
+# Create binned var for departure time
+tables$trip[, depart_time_binned := fcase(
+  depart_time_hour %in% 6:8, 'AM Peak',
+  depart_time_hour %in% 9:14, 'Midday',
+  depart_time_hour %in% 15:17, 'PM Peak',
+  depart_time_hour %in% 18:19, 'Evening',
+  depart_time_hour %in% c(0:5, 20:24), 'Night'
+)]
+
+# check that assignment is correct
+tables$trip[, .N, .(depart_time_hour, depart_time_binned)][order(depart_time_hour)]
+
+# add to variable list
+variable_list = rbind(
+  variable_list,
+  data.table(
+    variable = 'depart_time_binned',
+    hh = 0,
+    person = 0,
+    vehicle = 0,
+    day = 0,
+    trip = 1,
+    location = 0,
+    description = 'Departure time binned',
+    data_type = 'integer/categorical',
+    logic = NA,
+    is_checkbox = 0,
+    shared_name = 'depart_time_binned'
+  )
+)
+
+prep = hts_prep_variable(summarize_var = 'mode_type',
+                         summarize_by = 'depart_time_binned',
+                         variables_dt = variable_list,
+                         data = tables,
+                         id_cols = ids,
+                         wt_cols = wts,
+                         missing_values = c("995", "NULL"))
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'mode_type',
+                     summarize_by = 'depart_time_binned',
+                     summarize_vartype = 'categorical',
+                     id_cols = ids,
+                     wtname = 'trip_weight')
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+# tab = tab[mode_type != 'NULL']
+
+tab = factorize_df(
+  tab,
+  value_labels,
+  variable_colname = 'psrc_variable',
+  value_colname = 'psrc_value',
+  value_order_colname = 'psrc_value',
+  value_label_colname = "final_label")
+
+dcast(tab, mode_type ~ depart_time_binned, value.var = 'pct') %>% 
+  adorn_totals() %>% 
+  flextable() %>%
+  colformat_double(suffix = '%')
+
+
+```
+
+
+# TABLE 33: TRIP PURPOSE, BY HOUSEHOLD INCOME (WEIGHTED)
+
+```{r table 33, echo = FALSE, warning = FALSE}
+
+prep = hts_prep_variable(summarize_var = 'dest_purpose_cat',
+                         summarize_by = 'hhincome_broad',
+                         variables_dt = variable_list,
+                         data = tables,
+                         id_cols = ids,
+                         wt_cols = wts,
+                         missing_values = c("995", "NULL"))
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'dest_purpose_cat',
+                     summarize_by = 'hhincome_broad',
+                     summarize_vartype = 'categorical',
+                     id_cols = ids,
+                     wtname = 'trip_weight')
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+# tab = tab[dest_purpose_cat != 'NULL']
+
+
+tab = factorize_df(
+  tab,
+  value_labels,
+  variable_colname = 'psrc_variable',
+  value_colname = 'psrc_value',
+  value_order_colname = 'psrc_value',
+  value_label_colname = "final_label")
+
+dcast(tab, dest_purpose_cat ~ hhincome_broad, value.var = 'pct') %>% 
+  adorn_totals() %>% 
+  flextable() %>%
+  colformat_double(suffix = '%')
+
+```
+
+
+# TABLE 34: TRIP PURPOSE, BY TIME OF DAY (WEIGHTED)
+
+```{r table 34, echo = FALSE, warning = FALSE}
+
+prep = hts_prep_variable(summarize_var = 'dest_purpose_cat',
+                         summarize_by = 'depart_time_binned',
+                         variables_dt = variable_list,
+                         data = tables,
+                         id_cols = ids,
+                         wt_cols = wts,
+                         missing_values = c("995", "NULL"))
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'dest_purpose_cat',
+                     summarize_by = 'depart_time_binned',
+                     summarize_vartype = 'categorical',
+                     id_cols = ids,
+                     wtname = 'trip_weight')
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+# tab = tab[dest_purpose_cat != 'NULL']
+
+tab = factorize_df(
+  tab,
+  value_labels,
+  variable_colname = 'psrc_variable',
+  value_colname = 'psrc_value',
+  value_order_colname = 'psrc_value',
+  value_label_colname = "final_label")
+
+dcast(tab, dest_purpose_cat ~ depart_time_binned, value.var = 'pct') %>% 
+  adorn_totals() %>% 
+  flextable() %>%
+  colformat_double(suffix = '%')
+
+```
+
+# TABLE 35: TRIP PURPOSE, BY DISTANCE (WEIGHTED)
+
+```{r table 35, echo = FALSE, warning = FALSE}
+
+tables$trip[, distance_miles := as.numeric(distance_miles)]
+
+tables$trip[, distance_miles_binned := fcase(
+  distance_miles < 1, '< 1 mile',
+  distance_miles >= 1 & distance_miles < 2, '1-2 miles',
+  distance_miles >= 2 & distance_miles < 4, '2-4 miles',
+  distance_miles >= 4 & distance_miles < 6, '4-6 miles',
+  distance_miles >= 6 & distance_miles < 8, '6-8 miles',
+  distance_miles >= 8 & distance_miles < 10, '8-10 miles',
+  distance_miles >= 10 & distance_miles < 12, '10-12 miles',
+  distance_miles >= 12 & distance_miles < 14, '12-14 miles',
+  distance_miles >= 14 & distance_miles < 16, '14-16 miles',
+  distance_miles >= 16 & distance_miles < 18, '16-18 miles',
+  distance_miles >= 18 & distance_miles < 20, '18-20 miles',
+  distance_miles >= 20, '>= 20 miles'
+)]
+
+head(tables$trip[, .(distance_miles, distance_miles_binned)], 20)
+
+# add to variable list
+variable_list = rbind(
+  variable_list,
+  data.table(
+    variable = 'distance_miles_binned',
+    hh = 0,
+    person = 0,
+    vehicle = 0,
+    day = 0,
+    trip = 1,
+    location = 0,
+    description = 'Distance miles binned',
+    data_type = 'categorical',
+    logic = NA,
+    is_checkbox = 0,
+    shared_name = 'distance_miles_binned'
+  )
+)
+
+
+prep = hts_prep_variable(summarize_var = 'dest_purpose_cat',
+                         summarize_by = 'distance_miles_binned',
+                         variables_dt = variable_list,
+                         data = tables,
+                         id_cols = ids,
+                         wt_cols = wts,
+                         missing_values = c("995", "NULL"))
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'dest_purpose_cat',
+                     summarize_by = 'distance_miles_binned',
+                     summarize_vartype = 'categorical',
+                     id_cols = ids,
+                     wtname = 'trip_weight')
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+# tab = tab[dest_purpose_cat != 'NULL']
+
+tab = factorize_df(
+  tab,
+  value_labels,
+  variable_colname = 'psrc_variable',
+  value_colname = 'psrc_value',
+  value_order_colname = 'psrc_value',
+  value_label_colname = "final_label")
+
+dcast(tab, dest_purpose_cat ~ distance_miles_binned, value.var = 'pct') %>% 
+  adorn_totals() %>% 
+  flextable() %>%
+  colformat_double(suffix = '%')
+
+
+```
+
+# Travel Day activities---------------------------------------------------------
+
+TABLE 36: SUMMARY OF TELEWORK TIME, BY DAY OF WEEK (EMPLOYED ADULTS, WEIGHTED)
+
+```{r table 36, echo = FALSE, warning = FALSE}
+
+tables$day[, telework_time_binned := fcase(
+  telework_time > 0 & telework_time < 60, '0-1 hours',
+  telework_time >= 60 & telework_time < 360, '1-6 hours',
+  telework_time >= 360, '6+ hours',
+  telework_time == 0, 'Did not telework'
+)]
+
+# add to variable list
+variable_list = rbind(
+  variable_list,
+  data.table(
+    variable = 'telework_time_binned',
+    hh = 0,
+    person = 0,
+    vehicle = 0,
+    day = 1,
+    trip = 0,
+    location = 0,
+    description = 'Teleworking time binned',
+    data_type = 'categorical',
+    logic = NA,
+    is_checkbox = 0,
+    shared_name = 'telework_time_binned'
+  )
+)
+
+
+# get employed values from codebook
+employed_values = value_labels[
+  psrc_variable == 'employment' & 
+    str_detect(
+      final_label,
+      'Employed full time|Employed part time|Self-employed|volunteer'
+    ), 
+  psrc_value
+]
+
+# filter data to only employed persons
+employed_tables = hts_filter_data(tables,
+                                  tables$person[employment %in% employed_values, person_id],
+                                  'person_id')
+
+
+
+prep = hts_prep_variable(summarize_var = 'telework_time_binned',
+                         summarize_by = 'travel_dow',
+                         variables_dt = variable_list,
+                         data = employed_tables,
+                         id_cols = ids,
+                         wt_cols = wts)
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'telework_time_binned',
+                     summarize_by = 'travel_dow',
+                     summarize_vartype = 'categorical',
+                     id_cols = ids,
+                     wtname = 'day_weight_2023')
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+tab = factorize_df(
+  tab,
+  value_labels,
+  variable_colname = 'psrc_variable',
+  value_colname = 'psrc_value',
+  value_order_colname = 'psrc_value',
+  value_label_colname = "final_label")
+
+dcast(tab, telework_time_binned ~ travel_dow, value.var = 'pct') %>% 
+  adorn_totals() %>% 
+  flextable() %>%
+  colformat_double(suffix = '%')
+
+
+```
+
+# TABLE 37: SUMMARY OF REPORTED DELIVERIES ON TRAVEL DAY (WEIGHTED)
+
+```{r table 37, echo = FALSE, warning = FALSE}
+
+deliver_vars = variable_list[
+  shared_name == 'deliver' &
+    variable != 'deliver_none',
+  variable
+]
+
+
+tables$day[, num_deliver := rowSums(tables$day[, ..deliver_vars])]
+
+tables$day[, deliver_multiple := as.integer(ifelse(num_deliver > 1, 1, 0))]
+
+tables$day[deliver_multiple == 1, `:=`
+           (deliver_elsewhere = 0,
+             deliver_food = 0,
+             deliver_grocery = 0,
+             deliver_office = 0,
+             deliver_other = 0,
+             deliver_package = 0,
+             deliver_work = 0)]
+
+# add to variable list
+variable_list = rbind(
+  variable_list,
+  data.table(
+    variable = 'deliver_multiple',
+    hh = 0,
+    person = 0,
+    vehicle = 0,
+    day = 1,
+    trip = 0,
+    location = 0,
+    description = 'Deliveries and home services -- Multiple deliveries',
+    data_type = 'categorical',
+    logic = NA,
+    is_checkbox = 0,
+    shared_name = 'deliver'
+  )
+)
+
+
+prep = hts_prep_variable(summarize_var = 'deliver',
+                         variables_dt = variable_list,
+                         data = tables,
+                         id_cols = ids,
+                         wt_cols = wts)
+
+
+output = hts_summary(prep$cat,
+                     summarize_var = 'deliver',
+                     summarize_vartype = 'checkbox',
+                     checkbox_yesval = 1,
+                     id_cols = ids,
+                     wtname = 'day_weight_2023')
+
+tab = output$summary$wtd
+
+tab$pct = round(tab$prop * 100, 2)
+
+tab[, .(deliver, pct)] %>% 
+  adorn_totals() %>%
+  flextable()
+
+```
+
