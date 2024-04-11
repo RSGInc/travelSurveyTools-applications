@@ -401,6 +401,42 @@ make_triprate_table = function(summarize_by,
 
 # Demographics
 
+# Counts by diary platform
+
+```{r}
+
+rmove_ids = tables$hh[diary_platform == 'rmove', hhid]
+browser_ids = tables$hh[diary_platform == 'browser', hhid]
+call_ids = tables$hh[diary_platform == 'call', hhid]
+
+
+diary_platform_counts = data.table(
+  table = c('hh', 'person', 'trip'),
+  rmove_counts = c(
+    tables$hh[hhid %in% rmove_ids, .N],
+    tables$person[hhid %in% rmove_ids, .N],
+    tables$trip[hhid %in% rmove_ids, .N]
+  ),
+  browser_counts = c(
+    tables$hh[hhid %in% browser_ids, .N],
+    tables$person[hhid %in% browser_ids, .N],
+    tables$trip[hhid %in% browser_ids, .N]
+  ),
+  call_counts = c(
+    tables$hh[hhid %in% call_ids, .N],
+    tables$person[hhid %in% call_ids, .N],
+    tables$trip[hhid %in% call_ids, .N]
+  )
+)
+
+
+diary_platform_counts %>% 
+  adorn_totals(where = 'col') %>% 
+  flextable()
+
+```
+
+
 # TABLE 11: PARTICIPANT AGE BY PARTICIPATION MODE
 
 ```{r table 11, echo=FALSE}
@@ -1334,7 +1370,7 @@ deliver_vars = variable_list[
 ]
 
 
-tables$day[, num_deliver := rowSums(tables$day[, ..deliver_vars])]
+tables$day[, num_deliver := rowSums(tables$day[, ..deliver_vars] == 1)]
 
 tables$day[, deliver_multiple := as.integer(ifelse(num_deliver > 1, 1, 0))]
 
